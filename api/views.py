@@ -5,7 +5,8 @@ from rest_framework import status
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from django.contrib.auth.models import User
-from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, login, logout as django_logout
+from django.middleware.csrf import get_token
 
 # Test connection between React and Django
 @api_view(['GET'])
@@ -78,6 +79,32 @@ def sign_in(request):
     user = authenticate(request, username=user_obj.username, password=password)
 
     if user:
+        login(request, user)
         return Response({'message': 'Login successful', 'user_id': user.id})
     else:
         return Response({'detail': 'Invalid credentials.'}, status=401)
+
+# Get user's logged in status and info
+@api_view(['GET'])
+def get_logged_in_user(request):
+    if request.user.is_authenticated:
+        return Response({
+            'isAuthenticated': True,
+            'user_id': request.user.id,
+            'email': request.user.email,
+            'username': request.user.username,
+        })
+    else:
+        return Response({'isAuthenticated': False}, status=200)
+
+# Get the token before making a post request
+@api_view(['GET'])
+def get_csrf_token(request):
+    token = get_token(request)
+    return Response({'csrfToken': token})
+
+# Logout
+@api_view(['POST'])
+def sign_out(request):
+    django_logout(request)
+    return Response({'message': 'Logged out successfully'})

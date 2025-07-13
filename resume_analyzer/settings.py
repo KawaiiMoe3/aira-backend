@@ -132,3 +132,16 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CORS_ALLOW_ALL_ORIGINS = True  # For development
+
+CSRF_COOKIE_NAME = "csrftoken"
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",  # your React frontend URL
+]
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+]
+# Allow React frontend to receive the CSRF token cookie
+CSRF_COOKIE_HTTPONLY = False  # Must be False so React can read it
+CSRF_COOKIE_SAMESITE = 'Lax'  # or 'None' if cross-origin
+CSRF_COOKIE_SECURE = False    # Set to True in production (HTTPS)
