@@ -2,11 +2,17 @@ import re
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.views import APIView
+
+from django.contrib.auth.models import User
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
-from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout as django_logout
 from django.middleware.csrf import get_token
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import send_mail
+from django.urls import reverse
+from django.conf import settings
 
 # Test connection between React and Django
 @api_view(['GET'])
@@ -25,9 +31,13 @@ def sign_up(request):
     if not username or not email or not password:
         return Response({'detail': 'All fields are required.'}, status=400)
 
-    # Username: Alphanumeric only
-    if not re.fullmatch(r'^[a-zA-Z0-9]+$', username):
-        return Response({'username': ['Username must be letters and numbers only.']}, status=400)
+    # Username: Alphanumeric only + maximum 50 characters
+    if not re.fullmatch(r'[a-zA-Z0-9 ]{1,50}', username) or username.strip() == '':
+        return Response({
+            'username': [
+                'Username must be 1-50 characters, letters, numbers, and spaces only. Cannot be only spaces.'
+            ]
+        }, status=400)
 
     # Email: Valid format
     try:
@@ -108,3 +118,40 @@ def get_csrf_token(request):
 def sign_out(request):
     django_logout(request)
     return Response({'message': 'Logged out successfully'})
+
+# Forgot password
+class ForgotPasswordView(APIView):
+    def post(self, request):
+        email = request.data.get('email')
+        try:
+            user = User.objects.get(email=email)
+            token = default_token_generator.make_token(user)
+            uid = user.pk
+            reset_link = f"{settings.FRONTEND_URL}/reset-password?uid={uid}&token={token}"
+            send_mail(
+                subject="Reset Your Password",
+                message=f"Click the link to reset your password:\n{reset_link}",
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+            )
+            return Response({"message": "Password reset email sent."}, status=status.HTTP_200_OK)
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+# Reset Password
+class ResetPasswordConfirmView(APIView):
+    def post(self, request):
+        uid = request.data.get("uid")
+        token = request.data.get("token")
+        password = request.data.get("password")
+
+        try:
+            user = User.objects.get(pk=uid)
+            if default_token_generator.check_token(user, token):
+                user.set_password(password)
+                user.save()
+                return Response({"message": "Password has been reset successfully."})
+            else:
+                return Response({"error": "Invalid or expired token."}, status=400)
+        except User.DoesNotExist:
+            return Response({"error": "Invalid user."}, status=400)

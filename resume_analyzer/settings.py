@@ -118,13 +118,15 @@ TIME_ZONE = 'Asia/Kuala_Lumpur'
 
 USE_I18N = True
 
-USE_TZ = True
+USE_TZ = False
 
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+
+FRONTEND_URL = 'http://localhost:5173'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -145,3 +147,12 @@ CSRF_TRUSTED_ORIGINS = [
 CSRF_COOKIE_HTTPONLY = False  # Must be False so React can read it
 CSRF_COOKIE_SAMESITE = 'Lax'  # or 'None' if cross-origin
 CSRF_COOKIE_SECURE = False    # Set to True in production (HTTPS)
+
+#Simple Mail Transfer Protocol(SMTP)
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_HOST_USER = 'example@example.com'
+EMAIL_HOST_PASSWORD = '' # App Password (Not Gmail login password)
+EMAIL_USE_TLS = True
+DEFAULT_FROM_EMAIL = "AIRA <example@example.com>"
