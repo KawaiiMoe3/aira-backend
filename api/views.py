@@ -10,8 +10,9 @@ from django.core.exceptions import ValidationError
 from django.contrib.auth import authenticate, login, logout as django_logout
 from django.middleware.csrf import get_token
 from django.contrib.auth.tokens import default_token_generator
-from django.core.mail import send_mail
-from django.urls import reverse
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
+from django.utils.timezone import now
 from django.conf import settings
 
 # Test connection between React and Django
@@ -123,20 +124,46 @@ def sign_out(request):
 class ForgotPasswordView(APIView):
     def post(self, request):
         email = request.data.get('email')
+        
+        if not email:
+            return Response({"error": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            validate_email(email)
+        except ValidationError:
+            return Response({"error": "Please enter a valid email address."}, status=status.HTTP_400_BAD_REQUEST)
+        
         try:
             user = User.objects.get(email=email)
             token = default_token_generator.make_token(user)
             uid = user.pk
             reset_link = f"{settings.FRONTEND_URL}/reset-password?uid={uid}&token={token}"
-            send_mail(
-                subject="Reset Your Password",
-                message=f"Click the link to reset your password:\n{reset_link}",
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-            )
-            return Response({"message": "Password reset email sent."}, status=status.HTTP_200_OK)
+            
+            try:
+                # Email content
+                subject = "Reset Your Password"
+                from_email = settings.DEFAULT_FROM_EMAIL
+                to = [email]
+
+                text_content = f"Click the link to reset your password:\n{reset_link}"
+                html_content = render_to_string("emails/reset_password.html", {
+                    "user": user,
+                    "reset_link": reset_link,
+                    "now": now(),
+                })
+
+                # Send email
+                email_msg = EmailMultiAlternatives(subject, text_content, from_email, to)
+                email_msg.attach_alternative(html_content, "text/html")
+                email_msg.send()
+
+            except Exception as e:
+                return Response({"error": "Failed to send reset email."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            return Response({"message": "We've sent you an email, please check your mailbox."}, status=status.HTTP_200_OK)
+
         except User.DoesNotExist:
-            return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": "The email was not found."}, status=status.HTTP_404_NOT_FOUND)
 
 # Reset Password
 class ResetPasswordConfirmView(APIView):
@@ -144,6 +171,21 @@ class ResetPasswordConfirmView(APIView):
         uid = request.data.get("uid")
         token = request.data.get("token")
         password = request.data.get("password")
+        
+         # Password validation
+        def is_valid_password(pw):
+            return (
+                len(pw) >= 8
+                and re.search(r"[A-Z]", pw)
+                and re.search(r"[a-z]", pw)
+                and re.search(r"[0-9]", pw)
+                and re.search(r"[!@#$%^&*(),.?\":{}|<>]", pw)
+            )
+        
+        if not is_valid_password(password):
+            return Response({
+                "error": "Password must be at least 8 characters long, and include uppercase, lowercase, number, and special character."
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             user = User.objects.get(pk=uid)
@@ -152,6 +194,12 @@ class ResetPasswordConfirmView(APIView):
                 user.save()
                 return Response({"message": "Password has been reset successfully."})
             else:
-                return Response({"error": "Invalid or expired token."}, status=400)
+                return Response(
+                    {"error": "This reset link is invalid or has expired."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         except User.DoesNotExist:
-            return Response({"error": "Invalid user."}, status=400)
+            return Response(
+                {"error": "Invalid user."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
