@@ -1,4 +1,5 @@
 import re
+import json
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
@@ -7,13 +8,16 @@ from rest_framework.views import APIView
 from django.contrib.auth.models import User
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
-from django.contrib.auth import authenticate, login, logout as django_logout
+from django.contrib.auth import authenticate, login, logout as django_logout, update_session_auth_hash
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.csrf import csrf_exempt
 from django.middleware.csrf import get_token
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils.timezone import now
 from django.conf import settings
+from django.http import JsonResponse
 
 # Test connection between React and Django
 @api_view(['GET'])
@@ -203,3 +207,97 @@ class ResetPasswordConfirmView(APIView):
                 {"error": "Invalid user."},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+# Update user's email and username
+@api_view(['PATCH'])
+def update_user_info(request):
+    if not request.user.is_authenticated:
+        return Response({'detail': 'Authentication required.'}, status=401)
+
+    username = request.data.get('username')
+    email = request.data.get('email')
+
+    # Validation
+    if not username or not email:
+        return Response({'detail': 'Username and email are required.'}, status=400)
+
+    # Validate username
+    if not re.fullmatch(r'[a-zA-Z0-9 ]{1,50}', username) or username.strip() == '':
+        return Response({
+            'username': [
+                'Username must be 1-50 characters, letters, numbers, and spaces only. Cannot be only spaces.'
+            ]
+        }, status=400)
+
+    # Validate email
+    try:
+        validate_email(email)
+    except ValidationError:
+        return Response({'email': ['Enter a valid email address.']}, status=400)
+
+    # Check if new username is taken by someone else
+    if User.objects.filter(username=username).exclude(id=request.user.id).exists():
+        return Response({'username': ['Username already exists.']}, status=400)
+
+    # Check if new email is taken by someone else
+    if User.objects.filter(email=email).exclude(id=request.user.id).exists():
+        return Response({'email': ['This email is already in use.']}, status=400)
+
+    # Update
+    user = request.user
+    user.username = username
+    user.email = email
+    user.save()
+
+    return Response({
+        'message': 'User info updated successfully.',
+        'username': user.username,
+        'email': user.email,
+    })
+    
+# Change password for account
+@csrf_exempt
+@login_required
+def change_password(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST method is allowed.'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        current_password = data.get('current_password')
+        new_password = data.get('new_password')
+
+        if not current_password or not new_password:
+            return JsonResponse({'error': 'Both current and new passwords are required.'}, status=400)
+
+        user = request.user
+
+        if not user.check_password(current_password):
+            return JsonResponse({'error': 'Current password is incorrect.'}, status=400)
+
+        # Custom password validation
+        if len(new_password) < 8:
+            return JsonResponse({'error': 'Password must be at least 8 characters long.'}, status=400)
+        if not re.search(r'[A-Z]', new_password):
+            return JsonResponse({'error': 'Password must contain at least one uppercase letter.'}, status=400)
+        if not re.search(r'[a-z]', new_password):
+            return JsonResponse({'error': 'Password must contain at least one lowercase letter.'}, status=400)
+        if not re.search(r'[0-9]', new_password):
+            return JsonResponse({'error': 'Password must contain at least one number.'}, status=400)
+        if not re.search(r'[!@#$%^&*(),.?":{}|<>]', new_password):
+            return JsonResponse({'error': 'Password must contain at least one special character.'}, status=400)
+
+        # Save new password
+        user.set_password(new_password)
+        user.save()
+
+        # Keep user logged in
+        update_session_auth_hash(request, user)
+
+        return JsonResponse({'message': 'Password updated successfully.'}, status=200)
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON format.'}, status=400)
+
+    except Exception as e:
+        return JsonResponse({'error': f'Server error: {str(e)}'}, status=500)
