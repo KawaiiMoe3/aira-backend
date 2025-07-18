@@ -10,7 +10,7 @@ from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from django.contrib.auth import authenticate, login, logout as django_logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
+from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.middleware.csrf import get_token
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import EmailMultiAlternatives
@@ -120,7 +120,7 @@ def get_csrf_token(request):
 
 # Logout
 @api_view(['POST'])
-@ensure_csrf_cookie
+@csrf_protect
 def sign_out(request):
     django_logout(request)
     return Response({'message': 'Logged out successfully'})
