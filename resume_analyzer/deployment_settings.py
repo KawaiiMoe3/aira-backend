@@ -40,6 +40,8 @@ SESSION_COOKIE_SECURE = True          # Required if HTTPS
 SESSION_COOKIE_SAMESITE = 'None'      # Required for cross-origin cookies
 SESSION_COOKIE_HTTPONLY = True
 
+CSRF_USE_SESSIONS = True
+
 STORAGES = {
     "default" : {
         "BACKEND" : "django.core.files.storage.FileSystemStorage",
