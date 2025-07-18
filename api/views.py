@@ -10,7 +10,7 @@ from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from django.contrib.auth import authenticate, login, logout as django_logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.csrf import csrf_exempt, csrf_protect
+from django.views.decorators.csrf import csrf_exempt, csrf_protect, ensure_csrf_cookie
 from django.middleware.csrf import get_token
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import EmailMultiAlternatives
@@ -78,6 +78,7 @@ def sign_up(request):
 
 # Sign_in
 @api_view(['POST'])
+@ensure_csrf_cookie
 def sign_in(request):
     email = request.data.get('email')
     password = request.data.get('password')
