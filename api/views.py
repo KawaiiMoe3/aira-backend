@@ -115,6 +115,7 @@ def get_logged_in_user(request):
 
 # Get the token before making a post request
 @api_view(['GET'])
+@ensure_csrf_cookie
 def get_csrf_token(request):
     token = get_token(request)
     return Response({'csrfToken': token})
