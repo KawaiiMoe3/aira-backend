@@ -26,11 +26,6 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_CREDENTIALS = True
 
-# Ensure cookies work in cross-site (frontend-backend) communication
-SESSION_COOKIE_SECURE = True          # Required if HTTPS
-SESSION_COOKIE_SAMESITE = 'None'      # Required for cross-origin cookies
-SESSION_COOKIE_HTTPONLY = True
-
 CSRF_TRUSTED_ORIGINS = [
     "https://aira-u106.onrender.com", 
 ]
@@ -39,6 +34,11 @@ CSRF_COOKIE_NAME = "csrftoken"
 CSRF_COOKIE_SECURE = True    # Set to True in production (HTTPS)
 CSRF_COOKIE_SAMESITE = 'None'  # or 'None' if cross-origin
 CSRF_COOKIE_HTTPONLY = False  # Must be False so React can read it
+
+# Ensure cookies work in cross-site (frontend-backend) communication
+SESSION_COOKIE_SECURE = True          # Required if HTTPS
+SESSION_COOKIE_SAMESITE = 'None'      # Required for cross-origin cookies
+SESSION_COOKIE_HTTPONLY = True
 
 STORAGES = {
     "default" : {
