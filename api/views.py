@@ -4,7 +4,6 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
 
 from django.contrib.auth.models import User
 from django.core.validators import validate_email
@@ -210,47 +209,52 @@ class ResetPasswordConfirmView(APIView):
             )
 
 # Update user's email and username
-class UpdateUserInfoView(APIView):
-    permission_classes = [IsAuthenticated]
+@api_view(['PATCH'])
+def update_user_info(request):
+    if not request.user.is_authenticated:
+        return Response({'detail': 'Authentication required.'}, status=401)
 
-    def patch(self, request):
-        print("Authenticated:", request.user.is_authenticated)
-        print("User:", request.user)
-        print("Session ID:", request.COOKIES.get('sessionid'))
-        
-        username = request.data.get('username')
-        email = request.data.get('email')
+    username = request.data.get('username')
+    email = request.data.get('email')
 
-        if not username or not email:
-            return Response({'detail': 'Username and email are required.'}, status=400)
+    # Validation
+    if not username or not email:
+        return Response({'detail': 'Username and email are required.'}, status=400)
 
-        if not re.fullmatch(r'[a-zA-Z0-9 ]{1,50}', username) or username.strip() == '':
-            return Response({
-                'username': ['Username must be 1-50 characters, letters, numbers, and spaces only.']
-            }, status=400)
-
-        try:
-            validate_email(email)
-        except ValidationError:
-            return Response({'email': ['Enter a valid email address.']}, status=400)
-
-        if User.objects.filter(username=username).exclude(id=request.user.id).exists():
-            return Response({'username': ['Username already exists.']}, status=400)
-
-        if User.objects.filter(email=email).exclude(id=request.user.id).exists():
-            return Response({'email': ['This email is already in use.']}, status=400)
-
-        user = request.user
-        user.username = username
-        user.email = email
-        user.save()
-
+    # Validate username
+    if not re.fullmatch(r'[a-zA-Z0-9 ]{1,50}', username) or username.strip() == '':
         return Response({
-            'message': 'User info updated successfully.',
-            'username': user.username,
-            'email': user.email,
-        })
+            'username': [
+                'Username must be 1-50 characters, letters, numbers, and spaces only. Cannot be only spaces.'
+            ]
+        }, status=400)
 
+    # Validate email
+    try:
+        validate_email(email)
+    except ValidationError:
+        return Response({'email': ['Enter a valid email address.']}, status=400)
+
+    # Check if new username is taken by someone else
+    if User.objects.filter(username=username).exclude(id=request.user.id).exists():
+        return Response({'username': ['Username already exists.']}, status=400)
+
+    # Check if new email is taken by someone else
+    if User.objects.filter(email=email).exclude(id=request.user.id).exists():
+        return Response({'email': ['This email is already in use.']}, status=400)
+
+    # Update
+    user = request.user
+    user.username = username
+    user.email = email
+    user.save()
+
+    return Response({
+        'message': 'User info updated successfully.',
+        'username': user.username,
+        'email': user.email,
+    })
+    
 # Change password for account
 @csrf_exempt
 @login_required

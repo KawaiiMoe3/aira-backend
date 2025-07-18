@@ -13,7 +13,7 @@ urlpatterns = [
     # API for checking user's logged in status
     path('user/', views.get_logged_in_user),
     # API for update user's info
-    path('user/update/', views.UpdateUserInfoView.as_view()),
+    path('user/update/', views.update_user_info),
     path('user/change-password/', views.change_password),
     
     # API for generate csrf token
