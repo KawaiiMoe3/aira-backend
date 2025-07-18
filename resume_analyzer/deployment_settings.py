@@ -21,9 +21,19 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# CORS_ALLOWED_ORIGINS = [
-#     "http://localhost:5173",  # your React frontend URL
-# ]
+CORS_ALLOWED_ORIGINS = [
+    "https://aira-u106.onrender.com",  # React frontend URL
+]
+CORS_ALLOW_CREDENTIALS = True
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://aira-u106.onrender.com", 
+]
+CSRF_COOKIE_NAME = "csrftoken"
+# Allow React frontend to receive the CSRF token cookie
+CSRF_COOKIE_SECURE = True    # Set to True in production (HTTPS)
+CSRF_COOKIE_SAMESITE = 'None'  # or 'None' if cross-origin
+CSRF_COOKIE_HTTPONLY = False  # Must be False so React can read it
 
 STORAGES = {
     "default" : {
@@ -40,3 +50,11 @@ DATABASES = {
         conn_max_age = 600
     )
 }
+
+LANGUAGE_CODE = 'en-us'
+
+TIME_ZONE = 'Asia/Kuala_Lumpur'
+
+USE_I18N = True
+
+USE_TZ = False
