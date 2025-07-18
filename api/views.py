@@ -218,6 +218,7 @@ class ResetPasswordConfirmView(APIView):
 
 # Update user's email and username
 @api_view(['PATCH'])
+@csrf_protect
 def update_user_info(request):
     if not request.user.is_authenticated:
         return Response({'detail': 'Authentication required.'}, status=401)
