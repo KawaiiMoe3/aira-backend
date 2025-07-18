@@ -122,6 +122,11 @@ def get_csrf_token(request):
 @api_view(['POST'])
 @csrf_protect
 def sign_out(request):
+    print(">> Logout Request Received")
+    print(">> Is Authenticated:", request.user.is_authenticated)
+    print(">> sessionid cookie:", request.COOKIES.get("sessionid"))
+    print(">> csrftoken cookie:", request.COOKIES.get("csrftoken"))
+    
     django_logout(request)
     return Response({'message': 'Logged out successfully'})
 
