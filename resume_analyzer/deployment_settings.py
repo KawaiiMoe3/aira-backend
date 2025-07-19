@@ -1,4 +1,5 @@
 import os
+import time
 import dj_database_url
 from .settings import *
 from .settings import BASE_DIR
@@ -56,10 +57,12 @@ DATABASES = {
     )
 }
 
+
+os.environ['TZ'] = 'Asia/Kuala_Lumpur'
+time.tzset()
+
 LANGUAGE_CODE = 'en-us'
 
 TIME_ZONE = 'Asia/Kuala_Lumpur'
-
 USE_I18N = True
-
-USE_TZ = True
+USE_TZ = False
