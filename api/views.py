@@ -1,11 +1,15 @@
 import re
 import json
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
 
 from django.contrib.auth.models import User
+from .models import Profile, Language, Skill
+from .serializers import ProfileSerializer
+
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from django.contrib.auth import authenticate, login, logout as django_logout, update_session_auth_hash
@@ -310,3 +314,122 @@ def change_password(request):
 
     except Exception as e:
         return JsonResponse({'error': f'Server error: {str(e)}'}, status=500)
+
+# Update profile info
+@csrf_protect
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def profile_info(request):
+    profile, created = Profile.objects.get_or_create(user=request.user)
+
+    # If the profile is exists, then display as the value of all input fields at the initial load
+    if request.method == 'GET':
+        serializer = ProfileSerializer(profile)
+        return Response(serializer.data)
+
+    # If the profile info is empty, save or if exists then update the values
+    elif request.method == 'POST':
+        serializer = ProfileSerializer(profile, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Profile info updated.", "data": serializer.data})
+        return Response(serializer.errors, status=400)
+
+# Update profile summary
+@csrf_protect
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def profile_summary(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        return Response({'summary': profile.summary})
+
+    elif request.method == 'POST':
+        summary = request.data.get('summary', '').strip()
+        
+        # Validate summary length
+        if len(summary) > 500:
+            return Response({'summary': 'Summary cannot exceed 500 characters.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        profile.summary = summary
+        profile.save()
+        return Response({'message': 'Summary updated.', 'summary': profile.summary})
+
+@csrf_protect
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def profile_languages(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        # Return existing languages
+        data = [
+            {"name": lang.name, "proficiency": lang.proficiency}
+            for lang in profile.languages.all()
+        ]
+        return Response({"languages": data})
+
+    elif request.method == 'POST':
+        languages_data = request.data.get("languages", [])
+        
+        # Validation: If name is not empty, proficiency must also not be empty
+        for lang in languages_data:
+            name = lang.get("name", "").strip()
+            proficiency = lang.get("proficiency", "").strip()
+
+            if name and not proficiency:
+                return Response(
+                    {"error": f"Proficiency is required for language '{name}'."},
+                    status=400
+                )
+
+        # Delete existing languages
+        profile.languages.all().delete()
+
+        # Create new languages
+        for lang in languages_data:
+            name = lang.get("name", "").strip()
+            proficiency = lang.get("proficiency", "").strip()
+
+            if name and proficiency:  # Only save if name and proficiency are filled
+                Language.objects.create(
+                    profile=profile,
+                    name=name,
+                    proficiency=proficiency
+                )
+
+        return Response({"message": "Languages saved successfully."})
+    
+@csrf_protect
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def profile_skills(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        data = [{"name": skill.name} for skill in profile.skills.all()]
+        return Response({"skills": data})
+
+    elif request.method == 'POST':
+        skills_data = request.data.get("skills", [])
+        
+        # Validate all skills
+        for skill in skills_data:
+            name = skill.get("name", "").strip()
+            if not name:
+                return Response(
+                    {"error": "Please fill in all skill names or remove empty ones."},
+                    status=400
+                )
+
+        # Delete old skills
+        profile.skills.all().delete()
+
+        # Save new ones
+        for skill in skills_data:
+            name = skill.get("name", "").strip()
+            if name:
+                Skill.objects.create(profile=profile, name=name)
+
+        return Response({"message": "Skills updated successfully."})

@@ -3,11 +3,12 @@ from django.contrib.auth.models import User
 
 # Create your models here.
 
+# Profile models
 class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     full_name = models.CharField(max_length=100)
     position = models.CharField(max_length=100, blank=True, null=True)
-    bio = models.TextField(blank=True, null=True)
+    summary = models.TextField(blank=True, null=True)
     location = models.CharField(max_length=100, blank=True, null=True)
     profile_image = models.ImageField(upload_to='profile_images/', blank=True, null=True)
     phone = models.CharField(max_length=20, blank=True, null=True)
