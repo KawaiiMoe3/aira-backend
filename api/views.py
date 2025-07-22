@@ -356,7 +356,7 @@ def profile_summary(request):
         profile.save()
         return Response({'message': 'Summary updated.', 'summary': profile.summary})
 
-# Update profile's langauges
+# Update profile's languages
 @csrf_protect
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
