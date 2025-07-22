@@ -28,4 +28,8 @@ urlpatterns = [
     path('edit-profile/summary/', views.profile_summary),
     path('edit-profile/languages/', views.profile_languages),
     path('edit-profile/skills/', views.profile_skills),
+    path('edit-profile/educations/', views.profile_educations),
+    path('edit-profile/experiences/', views.profile_experiences),
+    path('edit-profile/projects/', views.profile_projects),
+    path('edit-profile/certifications/', views.profile_certifications),
 ]

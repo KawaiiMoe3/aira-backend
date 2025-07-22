@@ -26,8 +26,9 @@ class Education(models.Model):
     degree = models.CharField(max_length=100, blank=True, null=True)
     field_of_study = models.CharField(max_length=100, blank=True, null=True)
     start_date = models.DateField()
-    end_date = models.DateField()
+    end_date = models.CharField(max_length=50, blank=True, null=True) # Store as "Present" if is_still_studying is true
     cgpa = models.CharField(max_length=10, blank=True, null=True)
+    is_still_studying = models.BooleanField(default=False)
 
     def __str__(self):
         return self.institution
@@ -37,9 +38,10 @@ class Experience(models.Model):
     company = models.CharField(max_length=255)
     role = models.CharField(max_length=100)
     start_date = models.DateField()
-    end_date = models.DateField()
+    end_date = models.CharField(max_length=50, blank=True, null=True) # Store as "Present" if is_still_working is true
     contributions = models.TextField(blank=True, null=True)
     skills = models.TextField(blank=True, null=True)
+    is_still_working = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.role} at {self.company}"
