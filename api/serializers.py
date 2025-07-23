@@ -1,39 +1,33 @@
 import re
 from rest_framework import serializers
-from rest_framework.validators import UniqueValidator
-from .models import Users
+from django.core.validators import URLValidator
+from django.core.exceptions import ValidationError
+from .models import Profile
 
-class UserSerializer(serializers.ModelSerializer):
-    # Ensure registered email is unique
-    email = serializers.EmailField(
-        validators=[UniqueValidator(queryset=Users.objects.all(), message="Email already exists.")]
-    )
-    
+class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Users
+        model = Profile
         fields = '__all__'
-    
-    def validate_username(self, value):
-        if not value:
-            raise serializers.ValidationError("Username is required.")
-        if not re.match(r'^[A-Za-z0-9]{1,20}$', value):
-            raise serializers.ValidationError("Username must be alphanumeric and not more than 20 characters.")
+
+    def validate_full_name(self, value):
+        if len(value) > 50 or not re.match(r'^[A-Za-z0-9 ]+$', value):
+            raise serializers.ValidationError("Full name must be alphanumeric, spaces only, max 50 characters.")
         return value
 
-    def validate_email(self, value):
-        if not value:
-            raise serializers.ValidationError("Email is required.")
+    def validate_phone(self, value):
+        # Malaysian mobile number: 01X-XXXXXXX or 01X-XXXXXXXX
+        if not re.match(r'^01[0-46-9]-?[0-9]{7,8}$', value):
+            raise serializers.ValidationError("Please enter a valid Malaysian mobile number.")
         return value
 
-    def validate_password(self, value):
-        if not value:
-            raise serializers.ValidationError("Password is required.")
-        if len(value) < 6 or \
-           not re.search(r'[A-Z]', value) or \
-           not re.search(r'[a-z]', value) or \
-           not re.search(r'[0-9]', value) or \
-           not re.search(r'[@#$%^&+=!]', value):
-            raise serializers.ValidationError(
-                "Password must be at least 6 characters and include uppercase, lowercase, number, and special char."
-            )
-        return value
+    def validate(self, attrs):
+        url_fields = ['linkedin', 'github', 'portfolio', 'other_link']
+        validator = URLValidator()
+        for field in url_fields:
+            url = attrs.get(field)
+            if url:
+                try:
+                    validator(url)
+                except ValidationError:
+                    raise serializers.ValidationError({field: "Enter a valid URL."})
+        return attrs

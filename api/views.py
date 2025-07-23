@@ -1,11 +1,15 @@
 import re
 import json
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
 
 from django.contrib.auth.models import User
+from .models import Profile, Language, Skill, Education, Experience, Project,  Certification
+from .serializers import ProfileSerializer
+
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from django.contrib.auth import authenticate, login, logout as django_logout, update_session_auth_hash
@@ -310,3 +314,310 @@ def change_password(request):
 
     except Exception as e:
         return JsonResponse({'error': f'Server error: {str(e)}'}, status=500)
+
+# Update profile info
+@csrf_protect
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def profile_info(request):
+    profile, created = Profile.objects.get_or_create(user=request.user)
+
+    # If the profile is exists, then display as the value of all input fields at the initial load
+    if request.method == 'GET':
+        serializer = ProfileSerializer(profile)
+        return Response(serializer.data)
+
+    # If the profile info is empty, save or if exists then update the values
+    elif request.method == 'POST':
+        serializer = ProfileSerializer(profile, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Profile info updated.", "data": serializer.data})
+        return Response(serializer.errors, status=400)
+
+# Update profile summary
+@csrf_protect
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def profile_summary(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        return Response({'summary': profile.summary})
+
+    elif request.method == 'POST':
+        summary = request.data.get('summary', '').strip()
+        
+        # Validate summary length
+        if len(summary) > 500:
+            return Response({'summary': 'Summary cannot exceed 500 characters.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        profile.summary = summary
+        profile.save()
+        return Response({'message': 'Summary updated.', 'summary': profile.summary})
+
+# Update profile's languages
+@csrf_protect
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def profile_languages(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        # Return existing languages
+        data = [
+            {"name": lang.name, "proficiency": lang.proficiency}
+            for lang in profile.languages.all()
+        ]
+        return Response({"languages": data})
+
+    elif request.method == 'POST':
+        languages_data = request.data.get("languages", [])
+        
+        # Validation: If name is not empty, proficiency must also not be empty
+        for lang in languages_data:
+            name = lang.get("name", "").strip()
+            proficiency = lang.get("proficiency", "").strip()
+
+            if name and not proficiency:
+                return Response(
+                    {"error": f"Proficiency is required for language '{name}'."},
+                    status=400
+                )
+
+        # Delete existing languages
+        profile.languages.all().delete()
+
+        # Create new languages
+        for lang in languages_data:
+            name = lang.get("name", "").strip()
+            proficiency = lang.get("proficiency", "").strip()
+
+            if name and proficiency:  # Only save if name and proficiency are filled
+                Language.objects.create(
+                    profile=profile,
+                    name=name,
+                    proficiency=proficiency
+                )
+
+        return Response({"message": "Languages saved successfully."})
+
+# Update profile's skills
+@csrf_protect
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def profile_skills(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        data = [{"name": skill.name} for skill in profile.skills.all()]
+        return Response({"skills": data})
+
+    elif request.method == 'POST':
+        skills_data = request.data.get("skills", [])
+        
+        # Validate all skills
+        for skill in skills_data:
+            name = skill.get("name", "").strip()
+            if not name:
+                return Response(
+                    {"error": "Please fill in all skill names or remove empty ones."},
+                    status=400
+                )
+
+        # Delete old skills
+        profile.skills.all().delete()
+
+        # Save new ones
+        for skill in skills_data:
+            name = skill.get("name", "").strip()
+            if name:
+                Skill.objects.create(profile=profile, name=name)
+
+        return Response({"message": "Skills updated successfully."})
+
+# Update profile's educations
+@csrf_protect
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def profile_educations(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        educations = profile.educations.all()
+        data = [{
+            "institution": edu.institution,
+            "degree": edu.degree,
+            "field_of_study": edu.field_of_study,
+            "start_date": edu.start_date,
+            "end_date": edu.end_date,
+            "cgpa": edu.cgpa,
+            "is_still_studying": edu.is_still_studying,
+        } for edu in educations]
+        return Response({"educations": data})
+
+    elif request.method == 'POST':
+        educations_data = request.data.get("educations", [])
+
+        # Validate input
+        for edu in educations_data:
+            if not edu.get("institution") or not edu.get("start_date"):
+                return Response(
+                    {"error": "Please fill in all required fields or remove empty ones."},
+                    status=400
+                )
+
+        # Delete old entries
+        profile.educations.all().delete()
+
+        # Save new entries
+        for edu in educations_data:
+            is_still_studying = edu.get("is_still_studying", False)
+            end_date = "Present" if is_still_studying else edu.get("end_date") or None
+
+            Education.objects.create(
+                profile=profile,
+                institution=edu.get("institution", "").strip(),
+                degree=edu.get("degree", "").strip() or None,
+                field_of_study=edu.get("field_of_study", "").strip() or None,
+                start_date=edu.get("start_date"),
+                end_date=end_date,
+                cgpa=edu.get("cgpa", "").strip() or None,
+                is_still_studying=is_still_studying
+            )
+
+        return Response({"message": "Educations updated successfully."})
+
+# Update profile's professional experiences
+@csrf_protect
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def profile_experiences(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        data = [
+            {
+                "company": exp.company,
+                "role": exp.role,
+                "start_date": exp.start_date,
+                "end_date": exp.end_date,
+                "contributions": exp.contributions,
+                "skills": exp.skills,
+                "is_still_working": exp.is_still_working,
+            }
+            for exp in profile.experiences.all()
+        ]
+        return Response({"experiences": data})
+
+    elif request.method == 'POST':
+        experiences_data = request.data.get("experiences", [])
+
+        # Validate required fields
+        for exp in experiences_data:
+            if not exp.get("company") or not exp.get("role") or not exp.get("start_date"):
+                return Response(
+                    {"error": "Please fill in all required fields or remove empty ones."},
+                    status=400
+                )
+
+        # Delete existing experiences
+        profile.experiences.all().delete()
+
+        # Create new experiences
+        for exp in experiences_data:
+            is_still_working = exp.get("is_still_working", False)
+            end_date = "Present" if is_still_working else exp.get("end_date", "")
+            Experience.objects.create(
+                profile=profile,
+                company=exp.get("company", "").strip(),
+                role=exp.get("role", "").strip(),
+                start_date=exp.get("start_date"),
+                end_date=end_date,
+                contributions=exp.get("contributions", "").strip(),
+                skills=exp.get("skills", "").strip(),
+                is_still_working=is_still_working,
+            )
+
+        return Response({"message": "Experiences updated successfully."})
+
+# Update profile's projects
+@csrf_protect
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def profile_projects(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        data = [{
+            "title": project.title,
+            "description": project.description,
+            "technologies": project.technologies,
+            "live_link": project.live_link,
+            "github_link": project.github_link,
+        } for project in profile.projects.all()]
+        return Response({"projects": data})
+
+    elif request.method == 'POST':
+        projects_data = request.data.get("projects", [])
+
+        # Validate input
+        for proj in projects_data:
+            if not proj.get("title") or not proj.get("description") or not proj.get("technologies"):
+                return Response(
+                    {"error": "Please fill in all required fields or remove empty ones."},
+                    status=400
+                )
+
+        # Delete existing projects
+        profile.projects.all().delete()
+
+        # Create new projects
+        for proj in projects_data:
+            Project.objects.create(
+                profile=profile,
+                title=proj["title"],
+                description=proj["description"],
+                technologies=proj["technologies"],
+                live_link=proj.get("live_link", ""),
+                github_link=proj.get("github_link", "")
+            )
+
+        return Response({"message": "Projects updated successfully."})
+
+# Update profile's certifications
+@csrf_protect
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def profile_certifications(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        data = [{
+            "title": cert.title,
+            "issuer": cert.issuer,
+            "date": cert.date,
+        } for cert in profile.certifications.all()]
+        return Response({"certifications": data})
+
+    elif request.method == 'POST':
+        certifications_data = request.data.get("certifications", [])
+
+        for cert in certifications_data:
+            if not cert.get("title"):
+                return Response(
+                    {"error": "Please fill in the 'Title' field for each certification or remove the empty one."},
+                    status=400
+                )
+
+        profile.certifications.all().delete()
+
+        for cert in certifications_data:
+            Certification.objects.create(
+                profile=profile,
+                title=cert["title"],
+                issuer=cert.get("issuer", ""),
+                date=cert.get("date") or None
+            )
+
+        return Response({"message": "Certifications updated successfully."})
