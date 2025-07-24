@@ -335,6 +335,45 @@ def profile_info(request):
             return Response({"message": "Profile info updated.", "data": serializer.data})
         return Response(serializer.errors, status=400)
 
+# Update profile image
+@csrf_protect
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def profile_image(request):
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        image_url = request.build_absolute_uri(profile.profile_image.url) if profile.profile_image else None
+        return Response({'profile_image': image_url})
+
+    elif request.method == 'POST':
+        profile_image = request.FILES.get('profile_image')
+        print("FILES:", request.FILES)
+
+        if not profile_image:
+            return Response({'error': 'No image uploaded'}, status=400)
+
+        # === Validation ===
+        # 1. Size check (1MB max)
+        max_size = 1 * 1024 * 1024  # 1MB
+        if profile_image.size > max_size:
+            return Response({'error': 'Image file size must be less than 1MB'}, status=400)
+
+        # 2. Format check
+        valid_formats = ['image/png', 'image/jpeg', 'image/gif']
+        print("Content type:", profile_image.content_type)
+        if profile_image.content_type not in valid_formats:
+            return Response({'error': 'Invalid image format. Only PNG, JPG, JPEG, and GIF are allowed.'}, status=400)
+
+        # Save profile image
+        profile.profile_image = profile_image
+        profile.save()
+
+        return Response({
+            'message': 'Profile image saved successfully',
+            'profile_image': request.build_absolute_uri(profile.profile_image.url)
+        })
+
 # Update profile summary
 @csrf_protect
 @api_view(['GET', 'POST'])
