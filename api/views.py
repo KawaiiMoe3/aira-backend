@@ -364,6 +364,10 @@ def profile_image(request):
         print("Content type:", profile_image.content_type)
         if profile_image.content_type not in valid_formats:
             return Response({'error': 'Invalid image format. Only PNG, JPG, JPEG, and GIF are allowed.'}, status=400)
+        
+        # === Delete old image if exists ===
+        if profile.profile_image and profile.profile_image.name:
+            profile.profile_image.delete(save=False)
 
         # Save profile image
         profile.profile_image = profile_image
