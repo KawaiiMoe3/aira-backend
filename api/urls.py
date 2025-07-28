@@ -32,5 +32,5 @@ urlpatterns = [
     path('edit-profile/educations/', views.profile_educations),
     path('edit-profile/experiences/', views.profile_experiences),
     path('edit-profile/projects/', views.profile_projects),
-    path('edit-profile/certifications/', views.profile_image),
+    path('edit-profile/certifications/', views.profile_certifications),
 ]

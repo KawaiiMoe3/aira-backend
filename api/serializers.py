@@ -7,7 +7,7 @@ from .models import Profile
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
-        fields = '__all__'
+        exclude = ['profile_image'] # This serializer use only for profile_info, so exclude profile_image
 
     def validate_full_name(self, value):
         if len(value) > 50 or not re.match(r'^[A-Za-z0-9 ]+$', value):
