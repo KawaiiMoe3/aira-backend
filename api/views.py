@@ -320,7 +320,7 @@ def change_password(request):
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def profile_info(request):
-    profile, created = Profile.objects.get_or_create(user=request.user)
+    profile, _ = Profile.objects.get_or_create(user=request.user)
 
     # If the profile is exists, then display as the value of all input fields at the initial load
     if request.method == 'GET':
@@ -333,6 +333,7 @@ def profile_info(request):
         if serializer.is_valid():
             serializer.save()
             return Response({"message": "Profile info updated.", "data": serializer.data})
+        print(">>> Serializer errors:", serializer.errors)
         return Response(serializer.errors, status=400)
 
 # Update profile image
