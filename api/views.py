@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 from django.contrib.auth.models import User
 from .models import Profile, Language, Skill, Education, Experience, Project,  Certification
 from .serializers import ProfileSerializer
+from .utils import evaluate_profile_status
 
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
@@ -113,6 +114,7 @@ def get_logged_in_user(request):
             'user_id': request.user.id,
             'email': request.user.email,
             'username': request.user.username,
+            'last_login': request.user.last_login,
         })
     else:
         return Response({'isAuthenticated': False}, status=200)
@@ -665,3 +667,20 @@ def profile_certifications(request):
             )
 
         return Response({"message": "Certifications updated successfully."})
+
+# Evaluation of profile status
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def profile_status(request):
+    try:
+        profile = Profile.objects.get(user=request.user)
+        status, message = evaluate_profile_status(profile)
+        return Response({
+            'status': status,
+            'message': message,
+        })
+    except Profile.DoesNotExist:
+        return Response({
+            'status': 'Incomplete',
+            'message': 'Profile not found. Please complete your profile.'
+        }, status=404)

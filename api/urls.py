@@ -33,4 +33,7 @@ urlpatterns = [
     path('edit-profile/experiences/', views.profile_experiences),
     path('edit-profile/projects/', views.profile_projects),
     path('edit-profile/certifications/', views.profile_certifications),
+    
+    # API endpoint for evaluate user's profile status
+    path('profile/status/', views.profile_status),
 ]
