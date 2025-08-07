@@ -1,13 +1,18 @@
 import re
 import json
-from rest_framework.decorators import api_view, permission_classes
+import os
+import PyPDF2
+import docx2txt
+from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
 
 from django.contrib.auth.models import User
-from .models import Profile, Language, Skill, Education, Experience, Project,  Certification
+from .models import Profile, Language, Skill, Education, Experience, Project,  Certification, \
+                    ResumeAnalysis
 from .serializers import ProfileSerializer
 from .utils import evaluate_profile_status
 
@@ -22,7 +27,8 @@ from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils.timezone import now
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import JsonResponse, FileResponse, Http404
+from django.utils.dateformat import format
 
 # Test connection between React and Django
 @api_view(['GET'])
@@ -684,3 +690,91 @@ def profile_status(request):
             'status': 'Incomplete',
             'message': 'Profile not found. Please complete your profile.'
         }, status=404)
+
+@api_view(['POST'])
+@parser_classes([MultiPartParser])
+@permission_classes([IsAuthenticated])
+def resume_analyze(request):
+    file = request.FILES.get('resume')
+    ai_feedback = request.POST.get('ai_feedback')
+    enhanced_resume = request.POST.get('enhanced_resume')
+
+    if not file or not ai_feedback or not enhanced_resume:
+        return Response({'error': 'Missing data'}, status=400)
+
+    analysis = ResumeAnalysis.objects.create(
+        user=request.user,
+        uploaded_resume=file,
+        ai_feedback=ai_feedback,
+        enhanced_resume=enhanced_resume
+    )
+
+    return Response({'id': analysis.id})
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def feedback_detail(request, pk):
+    try:
+        analysis = ResumeAnalysis.objects.get(pk=pk, user=request.user)
+    except ResumeAnalysis.DoesNotExist:
+        return Response({'error': 'Not found'}, status=404)
+
+    return Response({
+        'ai_feedback': analysis.ai_feedback,
+        'enhanced_resume': analysis.enhanced_resume
+    })
+    
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def resume_analysis_history(request):
+    user = request.user
+    analyses = ResumeAnalysis.objects.filter(user=user).order_by('-created_at')
+
+    data = []
+    for analysis in analyses:
+        resume_name = analysis.uploaded_resume.name.split('/')[-1] if analysis.uploaded_resume else ''
+        title = os.path.splitext(resume_name)[0]  # Remove extension for title
+        
+        data.append({
+            'id': analysis.id,
+            'title': title,
+            'date': format(analysis.created_at, 'd M Y, H:i'),  # e.g., DD Month YYYY, H:M
+            'uploadedResume': resume_name,
+            'analysisReport': f"{title}{analysis.id}_report.pdf"
+        })
+
+    return Response(data)
+
+def download_uploaded_resume(request, filename):
+    file_path = os.path.join(settings.MEDIA_ROOT, 'resumes', filename)
+    if os.path.exists(file_path):
+        response = FileResponse(open(file_path, 'rb'), content_type='application/octet-stream')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+    else:
+        raise Http404("File does not exist")
+    
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_selected_analyzed_history(request):
+    ids = request.data.get('ids', [])
+
+    if not ids:
+        return Response({"error": "No IDs provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+    records = ResumeAnalysis.objects.filter(id__in=ids, user=request.user)
+    deleted_count = 0
+
+    for record in records:
+        # Delete the uploaded resume if it exists
+        if record.uploaded_resume and record.uploaded_resume.path and os.path.isfile(record.uploaded_resume.path):
+            try:
+                os.remove(record.uploaded_resume.path)
+            except Exception as e:
+                print(f"Error deleting file {record.uploaded_resume.path}: {e}")
+
+        # Then delete the database record
+        record.delete()
+        deleted_count += 1
+
+    return Response({"message": f"{deleted_count} item(s) deleted"}, status=status.HTTP_200_OK)

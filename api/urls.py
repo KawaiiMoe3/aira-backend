@@ -34,6 +34,13 @@ urlpatterns = [
     path('edit-profile/projects/', views.profile_projects),
     path('edit-profile/certifications/', views.profile_certifications),
     
-    # API endpoint for evaluate user's profile status
+    # API endpoint that used in dashboard module
+    # API endpoint for evaluate user's profile status in dashboard
     path('profile/status/', views.profile_status),
+    path('analyzed-history/', views.resume_analysis_history),
+    path('delete-analyzed-history/', views.delete_selected_analyzed_history),
+    path('download-uploaded-resume/<str:filename>', views.download_uploaded_resume),
+    
+    path('analyze-resume/', views.resume_analyze),
+    path('feedback/<int:pk>/', views.feedback_detail),
 ]

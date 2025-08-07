@@ -85,3 +85,11 @@ class Language(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.proficiency})"
+    
+class ResumeAnalysis(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    uploaded_resume = models.FileField(upload_to='resumes/', blank=True, null=True)
+    ai_feedback = models.TextField(blank=True, null=True)
+    enhanced_resume = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
