@@ -91,5 +91,6 @@ class ResumeAnalysis(models.Model):
     uploaded_resume = models.FileField(upload_to='resumes/', blank=True, null=True)
     ai_feedback = models.TextField(blank=True, null=True)
     enhanced_resume = models.TextField(blank=True, null=True)
+    analysis_report = models.FileField(upload_to='analysis_reports/', blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     

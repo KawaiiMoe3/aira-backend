@@ -39,7 +39,8 @@ urlpatterns = [
     path('profile/status/', views.profile_status),
     path('analyzed-history/', views.resume_analysis_history),
     path('delete-analyzed-history/', views.delete_selected_analyzed_history),
-    path('download-uploaded-resume/<str:filename>', views.download_uploaded_resume),
+    path('download-uploaded-resume/<str:filename>/', views.download_uploaded_resume),
+    path('download-analysis-report/<str:filename>/', views.download_analysis_report),
     
     path('analyze-resume/', views.resume_analyze),
     path('feedback/<int:pk>/', views.feedback_detail),

@@ -3,6 +3,8 @@ import json
 import os
 import PyPDF2
 import docx2txt
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -719,6 +721,30 @@ def feedback_detail(request, pk):
     except ResumeAnalysis.DoesNotExist:
         return Response({'error': 'Not found'}, status=404)
 
+    # Path for PDF
+    date_str = analysis.created_at.strftime("%d%m%y")
+    analysis_report_filename = f"{os.path.splitext(os.path.basename(analysis.uploaded_resume.name))[0]}{date_str}{analysis.id}_report.pdf"
+    analysis_report_path = os.path.join(settings.MEDIA_ROOT, 'analysis_reports', analysis_report_filename)
+
+    os.makedirs(os.path.dirname(analysis_report_path), exist_ok=True)
+
+    # Generate PDF
+    doc = SimpleDocTemplate(analysis_report_path)
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph("<b>AI Feedback</b>", styles['Heading1']),
+        Paragraph(analysis.ai_feedback or "No feedback provided", styles['Normal']),
+        Spacer(1, 12),
+        Paragraph("<b>Enhanced Resume</b>", styles['Heading1']),
+        Paragraph(analysis.enhanced_resume or "No enhanced resume provided", styles['Normal']),
+    ]
+    doc.build(story)
+
+    # Save file to model if not already saved
+    if not analysis.analysis_report:
+        analysis.analysis_report.name = f"analysis_reports/{analysis_report_filename}"
+        analysis.save()
+
     return Response({
         'ai_feedback': analysis.ai_feedback,
         'enhanced_resume': analysis.enhanced_resume
@@ -735,12 +761,15 @@ def resume_analysis_history(request):
         resume_name = analysis.uploaded_resume.name.split('/')[-1] if analysis.uploaded_resume else ''
         title = os.path.splitext(resume_name)[0]  # Remove extension for title
         
+        date_str = analysis.created_at.strftime("%d%m%y") # DDMMYY
+        analysis_report_filename = f"{title}{date_str}{analysis.id}_report.pdf"
+        
         data.append({
             'id': analysis.id,
             'title': title,
             'date': format(analysis.created_at, 'd M Y, H:i'),  # e.g., DD Month YYYY, H:M
             'uploadedResume': resume_name,
-            'analysisReport': f"{title}{analysis.id}_report.pdf"
+            'analysisReport': analysis_report_filename
         })
 
     return Response(data)
@@ -749,6 +778,15 @@ def download_uploaded_resume(request, filename):
     file_path = os.path.join(settings.MEDIA_ROOT, 'resumes', filename)
     if os.path.exists(file_path):
         response = FileResponse(open(file_path, 'rb'), content_type='application/octet-stream')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+    else:
+        raise Http404("File does not exist")
+    
+def download_analysis_report(request, filename):
+    file_path = os.path.join(settings.MEDIA_ROOT, 'analysis_reports', filename)
+    if os.path.exists(file_path):
+        response = FileResponse(open(file_path, 'rb'), content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
     else:
@@ -766,12 +804,25 @@ def delete_selected_analyzed_history(request):
     deleted_count = 0
 
     for record in records:
-        # Delete the uploaded resume if it exists
+        # 1. Delete the uploaded resume if it exists
         if record.uploaded_resume and record.uploaded_resume.path and os.path.isfile(record.uploaded_resume.path):
             try:
                 os.remove(record.uploaded_resume.path)
             except Exception as e:
                 print(f"Error deleting file {record.uploaded_resume.path}: {e}")
+                
+        # 2. Delete generated analysis report if exists
+        if record.analysis_report:
+            resume_title = os.path.splitext(os.path.basename(record.uploaded_resume.name))[0]
+            date_str = record.created_at.strftime("%d%m%y")
+            analysis_report_filename = f"{resume_title}{date_str}{record.id}_report.pdf"
+            analysis_report_path = os.path.join(settings.MEDIA_ROOT, "analysis_reports", analysis_report_filename)
+
+            if os.path.isfile(analysis_report_path):
+                try:
+                    os.remove(analysis_report_path)
+                except Exception as e:
+                    print(f"Error deleting analysis report {analysis_report_path}: {e}")
 
         # Then delete the database record
         record.delete()
