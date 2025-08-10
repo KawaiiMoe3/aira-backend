@@ -3,6 +3,7 @@ import json
 import os
 import PyPDF2
 import docx2txt
+from openai import OpenAI
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from rest_framework.decorators import api_view, permission_classes, parser_classes
@@ -36,6 +37,26 @@ from django.utils.dateformat import format
 @api_view(['GET'])
 def test_connection(request):
     return Response({"message": "Django and React are connected!"})
+
+# Test OPENAI_API_KEY
+@api_view(['GET'])
+def test_openai(request):
+    # Get API key from environment variable
+    api_key = os.getenv("OPENAI_API_KEY")
+
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY is not found.. Haiyaaa")
+
+    client = OpenAI(api_key=api_key)
+
+    response = client.responses.create(
+        model="gpt-5-nano",
+        input="Hi, are you good today? Can you compare between git merge and rebase?"
+    )
+    
+    reply = response.output_text
+
+    return Response({"Responses from gpt-5-nano model: ": reply})
 
 # Sign_up
 @api_view(['POST'])

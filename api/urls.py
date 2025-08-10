@@ -4,6 +4,8 @@ from . import views
 urlpatterns = [
     # Test connection between Django and React
     path('test/', views.test_connection),
+    # Test openai_api_key
+    path('test-openai/', views.test_openai),
     
     # API Endpoints for main features
     path('signup/', views.sign_up),
