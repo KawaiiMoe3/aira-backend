@@ -1,9 +1,11 @@
 import re
 import json
 import os
+import tempfile
 import PyPDF2
 import docx2txt
-from openai import OpenAI
+
+from openai import OpenAI, APIError, APITimeoutError
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from rest_framework.decorators import api_view, permission_classes, parser_classes
@@ -33,6 +35,10 @@ from django.conf import settings
 from django.http import JsonResponse, FileResponse, Http404
 from django.utils.dateformat import format
 
+# Get OpenAI API key from environment variable
+api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=api_key)
+
 # Test connection between React and Django
 @api_view(['GET'])
 def test_connection(request):
@@ -41,13 +47,9 @@ def test_connection(request):
 # Test OPENAI_API_KEY
 @api_view(['GET'])
 def test_openai(request):
-    # Get API key from environment variable
-    api_key = os.getenv("OPENAI_API_KEY")
 
     if not api_key:
         raise ValueError("OPENAI_API_KEY is not found.. Haiyaaa")
-
-    client = OpenAI(api_key=api_key)
 
     response = client.responses.create(
         model="gpt-5-nano",
@@ -718,21 +720,117 @@ def profile_status(request):
 @parser_classes([MultiPartParser])
 @permission_classes([IsAuthenticated])
 def resume_analyze(request):
-    file = request.FILES.get('resume')
+    resume = request.FILES.get('resume')
+    
+    """Demo ai feedback belike:
+    
     ai_feedback = request.POST.get('ai_feedback')
     enhanced_resume = request.POST.get('enhanced_resume')
+    
+    """
 
-    if not file or not ai_feedback or not enhanced_resume:
-        return Response({'error': 'Missing data'}, status=400)
+    if not resume:
+        return Response({'error': 'Please select a resume to analyze.'}, status=400)
+    
+    # Save the in-memory upload to a temp file so OpenAI can read it.
+    # If not it will raise error: RuntimeError: Expected entry at `file` to be bytes, an io.IOBase instance, PathLike or a tuple but received <class 'django.core.files.uploadedfile.InMemoryUploadedFile'> instead. See https://github.com/openai/openai-python/tree/main#file-uploads
+    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(resume.name)[1]) as tmp:
+        for chunk in resume.chunks():
+            tmp.write(chunk)
+        tmp_path = tmp.name
+    
+    # Upload resume to OpenAI
+    try:
+        with open(tmp_path, "rb") as f:
+            uploaded_resume = client.files.create(
+            file=f,
+            purpose="user_data"
+        )
+        
+        # Prompt to the AI model (input)
+        prompt_text = """
+        You are an expert career coach and resume writer.
+        Analyze the provided resume and give your response in **two clearly separated sections**:
+
+        1. **AI Feedback** - Detailed, constructive feedback on how to improve the resume, including formatting, wording, skills, including other structures and sections.
+        2. **Enhanced Resume** - Significantly optimize and rewrite the resume in a more professional, polished, and ATS-friendly way. 
+        - Reorganize content for clarity and maximum impact.
+        - Convert responsibilities into measurable, results-driven achievements.
+        - Insert relevant industry keywords, strong action verbs, and quantifiable results wherever possible.
+        - Highlight leadership, problem-solving, and collaboration skills.
+        - Improve readability, grammar, and formatting.
+        - Remove redundancy and enhance overall flow.
+        - Ensure it passes Applicant Tracking Systems (ATS) by including strategic keywords.
+        - If information is missing but critical, fill with plausible placeholders clearly marked as "[Suggested]".
+
+        Keep the sections clearly labeled as:
+        [AI_FEEDBACK]
+        ...your feedback here...
+
+        [ENHANCED_RESUME]
+        ...your rewritten resume here...
+        ...Make sure the [ENHANCED_RESUME] section is formatted in plain text without markdown...
+        """
+        
+        # AI model analyze the uploaded resume with prompt
+        response = client.responses.create(
+            model="gpt-5-nano",
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_file",
+                            "file_id": uploaded_resume.id,
+                        },
+                        {
+                            "type": "input_text",
+                            "text": prompt_text,
+                        }
+                    ]
+                }
+            ],
+            timeout=30,
+        )
+    except APITimeoutError:
+        return Response({'error': 'AI analyzing timeout. Please try again later.'}, status=504)
+    except APIError as e:
+        return Response({'error': f'AI runtime error: {str(e)}'}, status=502)
+    except Exception as e:
+        return Response({'error': f'Unexpected error: {str(e)}'}, status=500)
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+    
+    # Get the responses(output) from ai model
+    ai_model_responses_output = response.output_text
+    
+    # Split he output into 2 sections
+    ai_feedback = ""
+    enhanced_resume = ""
+    
+    if "[AI_FEEDBACK]" in ai_model_responses_output and "[ENHANCED_RESUME]" in ai_model_responses_output:
+        parts = ai_model_responses_output.split("[ENHANCED_RESUME]")
+        ai_feedback = parts[0].replace("[AI_FEEDBACK]", "").strip()
+        enhanced_resume = parts[1].strip()
+    else:
+        ai_feedback = ai_model_responses_output
+        enhanced_resume = ""
 
     analysis = ResumeAnalysis.objects.create(
         user=request.user,
-        uploaded_resume=file,
+        uploaded_resume=resume,
         ai_feedback=ai_feedback,
-        enhanced_resume=enhanced_resume
+        enhanced_resume=enhanced_resume,
     )
 
-    return Response({'id': analysis.id})
+    return Response({
+        'id': analysis.id,
+        'ai_feedback': ai_feedback,
+        'enhanced_resume': enhanced_resume,
+    })
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -762,6 +860,7 @@ def feedback_detail(request, pk):
     doc.build(story)
 
     # Save file to model if not already saved
+    # Only generate PDF report if not exists / Generate PDF report once
     if not analysis.analysis_report:
         analysis.analysis_report.name = f"analysis_reports/{analysis_report_filename}"
         analysis.save()
@@ -793,7 +892,10 @@ def resume_analysis_history(request):
             'analysisReport': analysis_report_filename
         })
 
-    return Response(data)
+    return Response({
+        'total_uploaded_resume': analyses.count(),
+        'data': data,
+    })
 
 def download_uploaded_resume(request, filename):
     file_path = os.path.join(settings.MEDIA_ROOT, 'resumes', filename)
