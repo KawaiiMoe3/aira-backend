@@ -87,8 +87,15 @@ class Language(models.Model):
         return f"{self.name} ({self.proficiency})"
     
 class ResumeAnalysis(models.Model):
+    AI_MODELS = [
+        ("gpt-4.1-nano", "GPT-4.1 nano"),    
+        ("gpt-5-nano", "GPT-5 nano"),    
+        ("gpt-4o-mini", "GPT-4o mini"),    
+    ]
+    
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     uploaded_resume = models.FileField(upload_to='resumes/', blank=True, null=True)
+    ai_model = models.CharField(max_length=100, choices=AI_MODELS, default="gpt-5-nano")
     ai_feedback = models.TextField(blank=True, null=True)
     enhanced_resume = models.TextField(blank=True, null=True)
     analysis_report = models.FileField(upload_to='analysis_reports/', blank=True, null=True)

@@ -6,8 +6,8 @@ import PyPDF2
 import docx2txt
 
 from openai import OpenAI, APIError, APITimeoutError
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+from xhtml2pdf import pisa
+
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -721,6 +721,7 @@ def profile_status(request):
 @permission_classes([IsAuthenticated])
 def resume_analyze(request):
     resume = request.FILES.get('resume')
+    ai_model = request.POST.get('ai_model', 'gpt-5-nano') # default if not provided
     
     """Demo ai feedback belike:
     
@@ -732,23 +733,11 @@ def resume_analyze(request):
     if not resume:
         return Response({'error': 'Please select a resume to analyze.'}, status=400)
     
-    # Save the in-memory upload to a temp file so OpenAI can read it.
-    # If not it will raise error: RuntimeError: Expected entry at `file` to be bytes, an io.IOBase instance, PathLike or a tuple but received <class 'django.core.files.uploadedfile.InMemoryUploadedFile'> instead. See https://github.com/openai/openai-python/tree/main#file-uploads
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(resume.name)[1]) as tmp:
-        for chunk in resume.chunks():
-            tmp.write(chunk)
-        tmp_path = tmp.name
+    # Get file type
+    resume_ext = os.path.splitext(resume.name)[1].lower()
     
-    # Upload resume to OpenAI
-    try:
-        with open(tmp_path, "rb") as f:
-            uploaded_resume = client.files.create(
-            file=f,
-            purpose="user_data"
-        )
-        
-        # Prompt to the AI model (input)
-        prompt_text = """
+    # Prompt to the AI model (input)
+    prompt_text = """
         You are an expert career coach and resume writer.
         Analyze the provided resume and give your response in **two clearly separated sections**:
 
@@ -771,27 +760,55 @@ def resume_analyze(request):
         ...your rewritten resume here...
         ...Make sure the [ENHANCED_RESUME] section is formatted in plain text without markdown...
         """
-        
-        # AI model analyze the uploaded resume with prompt
-        response = client.responses.create(
-            model="gpt-5-nano",
-            input=[
+    
+    tmp_path = None
+    
+    try:
+        # Save uploaded file to temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=resume_ext) as tmp:
+            for chunk in resume.chunks():
+                tmp.write(chunk)
+            tmp_path = tmp.name
+
+        if resume_ext == ".docx":
+            # Extract text from DOCX
+            extracted_text = docx2txt.process(tmp_path)
+            input_content = [
                 {
                     "role": "user",
                     "content": [
                         {
-                            "type": "input_file",
-                            "file_id": uploaded_resume.id,
+                            "type": "input_text", 
+                            "text": extracted_text
                         },
                         {
-                            "type": "input_text",
-                            "text": prompt_text,
+                            "type": "input_text", 
+                            "text": prompt_text
                         }
                     ]
                 }
-            ],
+            ]
+        else:
+            # Upload directly for PDF (OpenAI will handle parsing automatically for PDF)
+            with open(tmp_path, "rb") as f:
+                uploaded_resume = client.files.create(file=f, purpose="user_data")
+            input_content = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_file", "file_id": uploaded_resume.id},
+                        {"type": "input_text", "text": prompt_text}
+                    ]
+                }
+            ]
+
+        # Call OpenAI
+        response = client.responses.create(
+            model=ai_model,
+            input=input_content,
             timeout=30,
         )
+
     except APITimeoutError:
         return Response({'error': 'AI analyzing timeout. Please try again later.'}, status=504)
     except APIError as e:
@@ -799,29 +816,31 @@ def resume_analyze(request):
     except Exception as e:
         return Response({'error': f'Unexpected error: {str(e)}'}, status=500)
     finally:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
-    
-    # Get the responses(output) from ai model
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+    # Process AI output
     ai_model_responses_output = response.output_text
     
-    # Split he output into 2 sections
+    # Split output into 2 sections
     ai_feedback = ""
     enhanced_resume = ""
-    
+
     if "[AI_FEEDBACK]" in ai_model_responses_output and "[ENHANCED_RESUME]" in ai_model_responses_output:
         parts = ai_model_responses_output.split("[ENHANCED_RESUME]")
         ai_feedback = parts[0].replace("[AI_FEEDBACK]", "").strip()
         enhanced_resume = parts[1].strip()
     else:
         ai_feedback = ai_model_responses_output
-        enhanced_resume = ""
 
+    # Store data to database
     analysis = ResumeAnalysis.objects.create(
         user=request.user,
         uploaded_resume=resume,
+        ai_model=ai_model,
         ai_feedback=ai_feedback,
         enhanced_resume=enhanced_resume,
     )
@@ -840,32 +859,32 @@ def feedback_detail(request, pk):
     except ResumeAnalysis.DoesNotExist:
         return Response({'error': 'Not found'}, status=404)
 
-    # Path for PDF
     date_str = analysis.created_at.strftime("%d%m%y")
-    analysis_report_filename = f"{os.path.splitext(os.path.basename(analysis.uploaded_resume.name))[0]}{date_str}{analysis.id}_report.pdf"
-    analysis_report_path = os.path.join(settings.MEDIA_ROOT, 'analysis_reports', analysis_report_filename)
+    filename = f"{os.path.splitext(os.path.basename(analysis.uploaded_resume.name))[0]}{date_str}{analysis.id}_report.pdf"
+    pdf_path = os.path.join(settings.MEDIA_ROOT, 'analysis_reports', filename)
 
-    os.makedirs(os.path.dirname(analysis_report_path), exist_ok=True)
-
-    # Generate PDF
-    doc = SimpleDocTemplate(analysis_report_path)
-    styles = getSampleStyleSheet()
-    story = [
-        Paragraph("<b>AI Feedback</b>", styles['Heading1']),
-        Paragraph(analysis.ai_feedback or "No feedback provided", styles['Normal']),
-        Spacer(1, 12),
-        Paragraph("<b>Enhanced Resume</b>", styles['Heading1']),
-        Paragraph(analysis.enhanced_resume or "No enhanced resume provided", styles['Normal']),
-    ]
-    doc.build(story)
+    os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
 
     # Save file to model if not already saved
     # Only generate PDF report if not exists / Generate PDF report once
-    if not analysis.analysis_report:
-        analysis.analysis_report.name = f"analysis_reports/{analysis_report_filename}"
-        analysis.save()
+    if not os.path.exists(pdf_path):
+        html_content = render_to_string('reports/analysis_report.html', {
+            "logo_url": request.build_absolute_uri(settings.STATIC_URL + "images/logo.png"),
+            "title": "Resume Analysis & AI Suggestions Report",
+            "ai_model": analysis.get_ai_model_display(),
+            "ai_feedback": analysis.ai_feedback or "No feedback provided",
+            "enhanced_resume": analysis.enhanced_resume or "No enhanced resume provided",
+        })
+
+        with open(pdf_path, "wb") as pdf_file:
+            pisa.CreatePDF(html_content, dest=pdf_file)
+
+        if not analysis.analysis_report:
+            analysis.analysis_report.name = f"analysis_reports/{filename}"
+            analysis.save()
 
     return Response({
+        'ai_model': analysis.get_ai_model_display(),
         'ai_feedback': analysis.ai_feedback,
         'enhanced_resume': analysis.enhanced_resume
     })
@@ -889,7 +908,8 @@ def resume_analysis_history(request):
             'title': title,
             'date': format(analysis.created_at, 'd M Y, H:i'),  # e.g., DD Month YYYY, H:M
             'uploadedResume': resume_name,
-            'analysisReport': analysis_report_filename
+            'analysisReport': analysis_report_filename,
+            'ai_model': analysis.get_ai_model_display(),
         })
 
     return Response({
