@@ -1,14 +1,25 @@
 import re
 import json
-from rest_framework.decorators import api_view, permission_classes
+import os
+import tempfile
+import PyPDF2
+import docx2txt
+
+from openai import OpenAI, APIError, APITimeoutError
+from xhtml2pdf import pisa
+
+from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
 
 from django.contrib.auth.models import User
-from .models import Profile, Language, Skill, Education, Experience, Project,  Certification
+from .models import Profile, Language, Skill, Education, Experience, Project,  Certification, \
+                    ResumeAnalysis
 from .serializers import ProfileSerializer
+from .utils import evaluate_profile_status
 
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
@@ -21,12 +32,33 @@ from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils.timezone import now
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import JsonResponse, FileResponse, Http404
+from django.utils.dateformat import format
+
+# Get OpenAI API key from environment variable
+api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=api_key)
 
 # Test connection between React and Django
 @api_view(['GET'])
 def test_connection(request):
     return Response({"message": "Django and React are connected!"})
+
+# Test OPENAI_API_KEY
+@api_view(['GET'])
+def test_openai(request):
+
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY is not found.. Haiyaaa")
+
+    response = client.responses.create(
+        model="gpt-5-nano",
+        input="Hi, are you good today? Can you compare between git merge and rebase?"
+    )
+    
+    reply = response.output_text
+
+    return Response({"Responses from gpt-5-nano model: ": reply})
 
 # Sign_up
 @api_view(['POST'])
@@ -113,6 +145,7 @@ def get_logged_in_user(request):
             'user_id': request.user.id,
             'email': request.user.email,
             'username': request.user.username,
+            'last_login': request.user.last_login,
         })
     else:
         return Response({'isAuthenticated': False}, status=200)
@@ -665,3 +698,277 @@ def profile_certifications(request):
             )
 
         return Response({"message": "Certifications updated successfully."})
+
+# Evaluation of profile status
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def profile_status(request):
+    try:
+        profile = Profile.objects.get(user=request.user)
+        status, message = evaluate_profile_status(profile)
+        return Response({
+            'status': status,
+            'message': message,
+        })
+    except Profile.DoesNotExist:
+        return Response({
+            'status': 'Incomplete',
+            'message': 'Profile not found. Please complete your profile.'
+        }, status=404)
+
+@api_view(['POST'])
+@parser_classes([MultiPartParser])
+@permission_classes([IsAuthenticated])
+def resume_analyze(request):
+    resume = request.FILES.get('resume')
+    ai_model = request.POST.get('ai_model', 'gpt-5-nano') # default if not provided
+    
+    """Demo ai feedback belike:
+    
+    ai_feedback = request.POST.get('ai_feedback')
+    enhanced_resume = request.POST.get('enhanced_resume')
+    
+    """
+
+    if not resume:
+        return Response({'error': 'Please select a resume to analyze.'}, status=400)
+    
+    # Get file type
+    resume_ext = os.path.splitext(resume.name)[1].lower()
+    
+    # Prompt to the AI model (input)
+    prompt_text = """
+        You are an expert career coach and resume writer.
+        Analyze the provided resume and give your response in **two clearly separated sections**:
+
+        1. **AI Feedback** - Detailed, constructive feedback on how to improve the resume, including formatting, wording, skills, including other structures and sections.
+        2. **Enhanced Resume** - Significantly optimize and rewrite the resume in a more professional, polished, and ATS-friendly way. 
+        - Reorganize content for clarity and maximum impact.
+        - Convert responsibilities into measurable, results-driven achievements.
+        - Insert relevant industry keywords, strong action verbs, and quantifiable results wherever possible.
+        - Highlight leadership, problem-solving, and collaboration skills.
+        - Improve readability, grammar, and formatting.
+        - Remove redundancy and enhance overall flow.
+        - Ensure it passes Applicant Tracking Systems (ATS) by including strategic keywords.
+        - If information is missing but critical, fill with plausible placeholders clearly marked as "[Suggested]".
+
+        Keep the sections clearly labeled as:
+        [AI_FEEDBACK]
+        ...your feedback here...
+
+        [ENHANCED_RESUME]
+        ...your rewritten resume here...
+        ...Make sure the [ENHANCED_RESUME] section is formatted in plain text without markdown...
+        """
+    
+    tmp_path = None
+    
+    try:
+        # Save uploaded file to temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=resume_ext) as tmp:
+            for chunk in resume.chunks():
+                tmp.write(chunk)
+            tmp_path = tmp.name
+
+        if resume_ext == ".docx":
+            # Extract text from DOCX
+            extracted_text = docx2txt.process(tmp_path)
+            input_content = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text", 
+                            "text": extracted_text
+                        },
+                        {
+                            "type": "input_text", 
+                            "text": prompt_text
+                        }
+                    ]
+                }
+            ]
+        else:
+            # Upload directly for PDF (OpenAI will handle parsing automatically for PDF)
+            with open(tmp_path, "rb") as f:
+                uploaded_resume = client.files.create(file=f, purpose="user_data")
+            input_content = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_file", "file_id": uploaded_resume.id},
+                        {"type": "input_text", "text": prompt_text}
+                    ]
+                }
+            ]
+
+        # Call OpenAI
+        response = client.responses.create(
+            model=ai_model,
+            input=input_content,
+            timeout=30,
+        )
+
+    except APITimeoutError:
+        return Response({'error': 'AI analyzing timeout. Please try again later.'}, status=504)
+    except APIError as e:
+        return Response({'error': f'AI runtime error: {str(e)}'}, status=502)
+    except Exception as e:
+        return Response({'error': f'Unexpected error: {str(e)}'}, status=500)
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+    # Process AI output
+    ai_model_responses_output = response.output_text
+    
+    # Split output into 2 sections
+    ai_feedback = ""
+    enhanced_resume = ""
+
+    if "[AI_FEEDBACK]" in ai_model_responses_output and "[ENHANCED_RESUME]" in ai_model_responses_output:
+        parts = ai_model_responses_output.split("[ENHANCED_RESUME]")
+        ai_feedback = parts[0].replace("[AI_FEEDBACK]", "").strip()
+        enhanced_resume = parts[1].strip()
+    else:
+        ai_feedback = ai_model_responses_output
+
+    # Store data to database
+    analysis = ResumeAnalysis.objects.create(
+        user=request.user,
+        uploaded_resume=resume,
+        ai_model=ai_model,
+        ai_feedback=ai_feedback,
+        enhanced_resume=enhanced_resume,
+    )
+
+    return Response({
+        'id': analysis.id,
+        'ai_feedback': ai_feedback,
+        'enhanced_resume': enhanced_resume,
+    })
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def feedback_detail(request, pk):
+    try:
+        analysis = ResumeAnalysis.objects.get(pk=pk, user=request.user)
+    except ResumeAnalysis.DoesNotExist:
+        return Response({'error': 'Not found'}, status=404)
+
+    date_str = analysis.created_at.strftime("%d%m%y")
+    filename = f"{os.path.splitext(os.path.basename(analysis.uploaded_resume.name))[0]}{date_str}{analysis.id}_report.pdf"
+    pdf_path = os.path.join(settings.MEDIA_ROOT, 'analysis_reports', filename)
+
+    os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+
+    # Save file to model if not already saved
+    # Only generate PDF report if not exists / Generate PDF report once
+    if not os.path.exists(pdf_path):
+        html_content = render_to_string('reports/analysis_report.html', {
+            "logo_url": request.build_absolute_uri(settings.STATIC_URL + "images/logo.png"),
+            "title": "Resume Analysis & AI Suggestions Report",
+            "ai_model": analysis.get_ai_model_display(),
+            "ai_feedback": analysis.ai_feedback or "No feedback provided",
+            "enhanced_resume": analysis.enhanced_resume or "No enhanced resume provided",
+        })
+
+        with open(pdf_path, "wb") as pdf_file:
+            pisa.CreatePDF(html_content, dest=pdf_file)
+
+        if not analysis.analysis_report:
+            analysis.analysis_report.name = f"analysis_reports/{filename}"
+            analysis.save()
+
+    return Response({
+        'ai_model': analysis.get_ai_model_display(),
+        'ai_feedback': analysis.ai_feedback,
+        'enhanced_resume': analysis.enhanced_resume
+    })
+    
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def resume_analysis_history(request):
+    user = request.user
+    analyses = ResumeAnalysis.objects.filter(user=user).order_by('-created_at')
+
+    data = []
+    for analysis in analyses:
+        resume_name = analysis.uploaded_resume.name.split('/')[-1] if analysis.uploaded_resume else ''
+        title = os.path.splitext(resume_name)[0]  # Remove extension for title
+        
+        date_str = analysis.created_at.strftime("%d%m%y") # DDMMYY
+        analysis_report_filename = f"{title}{date_str}{analysis.id}_report.pdf"
+        
+        data.append({
+            'id': analysis.id,
+            'title': title,
+            'date': format(analysis.created_at, 'd M Y, H:i'),  # e.g., DD Month YYYY, H:M
+            'uploadedResume': resume_name,
+            'analysisReport': analysis_report_filename,
+            'ai_model': analysis.get_ai_model_display(),
+        })
+
+    return Response({
+        'total_uploaded_resume': analyses.count(),
+        'data': data,
+    })
+
+def download_uploaded_resume(request, filename):
+    file_path = os.path.join(settings.MEDIA_ROOT, 'resumes', filename)
+    if os.path.exists(file_path):
+        response = FileResponse(open(file_path, 'rb'), content_type='application/octet-stream')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+    else:
+        raise Http404("File does not exist")
+    
+def download_analysis_report(request, filename):
+    file_path = os.path.join(settings.MEDIA_ROOT, 'analysis_reports', filename)
+    if os.path.exists(file_path):
+        response = FileResponse(open(file_path, 'rb'), content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+    else:
+        raise Http404("File does not exist")
+    
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_selected_analyzed_history(request):
+    ids = request.data.get('ids', [])
+
+    if not ids:
+        return Response({"error": "No IDs provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+    records = ResumeAnalysis.objects.filter(id__in=ids, user=request.user)
+    deleted_count = 0
+
+    for record in records:
+        # 1. Delete the uploaded resume if it exists
+        if record.uploaded_resume and record.uploaded_resume.path and os.path.isfile(record.uploaded_resume.path):
+            try:
+                os.remove(record.uploaded_resume.path)
+            except Exception as e:
+                print(f"Error deleting file {record.uploaded_resume.path}: {e}")
+                
+        # 2. Delete generated analysis report if exists
+        if record.analysis_report:
+            resume_title = os.path.splitext(os.path.basename(record.uploaded_resume.name))[0]
+            date_str = record.created_at.strftime("%d%m%y")
+            analysis_report_filename = f"{resume_title}{date_str}{record.id}_report.pdf"
+            analysis_report_path = os.path.join(settings.MEDIA_ROOT, "analysis_reports", analysis_report_filename)
+
+            if os.path.isfile(analysis_report_path):
+                try:
+                    os.remove(analysis_report_path)
+                except Exception as e:
+                    print(f"Error deleting analysis report {analysis_report_path}: {e}")
+
+        # Then delete the database record
+        record.delete()
+        deleted_count += 1
+
+    return Response({"message": f"{deleted_count} item(s) deleted"}, status=status.HTTP_200_OK)

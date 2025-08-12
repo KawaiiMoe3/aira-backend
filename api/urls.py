@@ -4,6 +4,8 @@ from . import views
 urlpatterns = [
     # Test connection between Django and React
     path('test/', views.test_connection),
+    # Test openai_api_key
+    path('test-openai/', views.test_openai),
     
     # API Endpoints for main features
     path('signup/', views.sign_up),
@@ -33,4 +35,15 @@ urlpatterns = [
     path('edit-profile/experiences/', views.profile_experiences),
     path('edit-profile/projects/', views.profile_projects),
     path('edit-profile/certifications/', views.profile_certifications),
+    
+    # API endpoint that used in dashboard module
+    # API endpoint for evaluate user's profile status in dashboard
+    path('profile/status/', views.profile_status),
+    path('analyzed-history/', views.resume_analysis_history),
+    path('delete-analyzed-history/', views.delete_selected_analyzed_history),
+    path('download-uploaded-resume/<str:filename>/', views.download_uploaded_resume),
+    path('download-analysis-report/<str:filename>/', views.download_analysis_report),
+    
+    path('analyze-resume/', views.resume_analyze),
+    path('feedback/<int:pk>/', views.feedback_detail),
 ]
