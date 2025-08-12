@@ -23,6 +23,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-#kufhl6dj6zm99w(cvc(s#_36fyi_sfxemkb%jjk*#bzae*0c^'
 
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
@@ -141,7 +143,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOW_ALL_ORIGINS = True  # For development
 
 CSRF_COOKIE_NAME = "csrftoken"
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_CREDENTIALS = True # allow cookies to be included in cross-site requests
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",  # React frontend URL
 ]
@@ -155,6 +157,9 @@ CSRF_TRUSTED_ORIGINS = [
 CSRF_COOKIE_HTTPONLY = False  # Must be False so React can read it
 CSRF_COOKIE_SAMESITE = 'Lax'  # or 'None' if cross-origin
 CSRF_COOKIE_SECURE = False    # Set to True in production (HTTPS)
+
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = False
 
 #Simple Mail Transfer Protocol(SMTP)
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
