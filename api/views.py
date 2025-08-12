@@ -736,6 +736,10 @@ def resume_analyze(request):
     # Get file type
     resume_ext = os.path.splitext(resume.name)[1].lower()
     
+    # Check file type
+    if resume_ext not in [".docx", ".pdf"]:
+        return Response({'error': 'Invalid file format. Please provide docx or pdf file.'}, status=400)
+    
     # Prompt to the AI model (input)
     prompt_text = """
         You are an expert career coach and resume writer.
