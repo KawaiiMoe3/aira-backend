@@ -10,6 +10,7 @@ urlpatterns = [
     # API Endpoints for main features
     path('signup/', views.sign_up),
     path('signin/', views.sign_in),
+    path('auth/google/', views.google_login),
     path('logout/', views.sign_out),
     
     # API for checking user's logged in status

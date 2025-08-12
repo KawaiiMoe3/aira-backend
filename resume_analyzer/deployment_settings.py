@@ -10,6 +10,8 @@ CSRF_TRUSTED_ORIGINS = ['https://'+os.environ.get('RENDER_EXTERNAL_HOSTNAME')]
 DEBUG = False
 SECRET_KEY = os.environ.get('SECRET_KEY')
 
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
@@ -28,7 +30,7 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGINS = [
     "https://aira-u106.onrender.com",  # React frontend URL
 ]
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_CREDENTIALS = True # allow cookies to be included in cross-site requests
 
 CSRF_TRUSTED_ORIGINS = [
     "https://aira-u106.onrender.com", 

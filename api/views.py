@@ -10,10 +10,13 @@ from xhtml2pdf import pisa
 
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.parsers import MultiPartParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
+
+from google.oauth2 import id_token
+from google.auth.transport import requests as grequests
 
 from django.contrib.auth.models import User
 from .models import Profile, Language, Skill, Education, Experience, Project,  Certification, \
@@ -135,6 +138,53 @@ def sign_in(request):
         return Response({'message': 'Login successful', 'user_id': user.id})
     else:
         return Response({'detail': 'Invalid credentials.'}, status=401)
+    
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def google_login(request):
+    token = request.data.get('token')
+    if not token:
+        return Response({'detail': 'No token provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        # Verify the token
+        idinfo = id_token.verify_oauth2_token(token, grequests.Request(), settings.GOOGLE_CLIENT_ID)
+
+        # Checks:
+        if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
+            return Response({'detail': 'Wrong issuer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        email = idinfo.get('email')
+        email_verified = idinfo.get('email_verified', False)
+        name = idinfo.get('name', '')
+        if not email:
+            return Response({'detail': 'No email in token.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Find or create a user. Make username unique:
+        username_base = email.split('@')[0]
+        username = username_base
+        i = 0
+        while User.objects.filter(username=username).exists():
+            i += 1
+            username = f"{username_base}{i}"
+
+        user, created = User.objects.get_or_create(
+            email=email,
+            defaults={'username': username, 'first_name': name}
+        )
+
+        # If created, don't set a usable password (login only via Google unless they set a password)
+        if created:
+            user.set_unusable_password()
+            user.save()
+
+        # Log the user in (creates Django session cookie)
+        login(request, user)
+
+        return Response({'message': 'Google login successful', 'user_id': user.id})
+    except ValueError as e:
+        # token invalid
+        return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 # Get user's logged in status and info
 @api_view(['GET'])
