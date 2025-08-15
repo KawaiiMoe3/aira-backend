@@ -22,7 +22,12 @@
 
     <h1>{{ title }}</h1>
     <div class="powered">
-        Powered by <strong>{{ ai_model }}</strong>
+        AI powered by <strong>{{ ai_model }}</strong>
+    </div>
+
+    <div class="card">
+        <h2>💼 Job Description</h2>
+        <p>{{ job_description|linebreaksbr }}</p>
     </div>
 
     <div class="card">

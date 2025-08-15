@@ -96,6 +96,7 @@ class ResumeAnalysis(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     uploaded_resume = models.FileField(upload_to='resumes/', blank=True, null=True)
     ai_model = models.CharField(max_length=100, choices=AI_MODELS, default="gpt-5-nano")
+    job_description = models.TextField(blank=True, null=True)
     ai_feedback = models.TextField(blank=True, null=True)
     enhanced_resume = models.TextField(blank=True, null=True)
     analysis_report = models.FileField(upload_to='analysis_reports/', blank=True, null=True)

@@ -772,6 +772,7 @@ def profile_status(request):
 def resume_analyze(request):
     resume = request.FILES.get('resume')
     ai_model = request.POST.get('ai_model', 'gpt-5-nano') # default if not provided
+    job_description = request.POST.get('job_description')
     
     """Demo ai feedback belike:
     
@@ -780,8 +781,13 @@ def resume_analyze(request):
     
     """
 
+    # Validation of resume and job description
     if not resume:
         return Response({'error': 'Please select a resume to analyze.'}, status=400)
+    
+    MAX_LENGTH = 200
+    if len(job_description) > MAX_LENGTH:
+        return Response({'error': f"Job description exceeded {MAX_LENGTH} characters."}, status=400)
     
     # Get file type
     resume_ext = os.path.splitext(resume.name)[1].lower()
@@ -814,6 +820,10 @@ def resume_analyze(request):
         ...your rewritten resume here...
         ...Make sure the [ENHANCED_RESUME] section is formatted in plain text without markdown...
         """
+        
+    if job_description:
+        prompt_text += f"\n\nThe candidate is applying for this role: \
+        \n{job_description}\n\nPlease tailor your analysis and enhanced resume to match this job."
     
     tmp_path = None
     
@@ -894,6 +904,7 @@ def resume_analyze(request):
     analysis = ResumeAnalysis.objects.create(
         user=request.user,
         uploaded_resume=resume,
+        job_description=job_description,
         ai_model=ai_model,
         ai_feedback=ai_feedback,
         enhanced_resume=enhanced_resume,
@@ -926,8 +937,9 @@ def feedback_detail(request, pk):
             "logo_url": request.build_absolute_uri(settings.STATIC_URL + "images/logo.png"),
             "title": "Resume Analysis & AI Suggestions Report",
             "ai_model": analysis.get_ai_model_display(),
-            "ai_feedback": analysis.ai_feedback or "No feedback provided",
-            "enhanced_resume": analysis.enhanced_resume or "No enhanced resume provided",
+            "job_description": analysis.job_description if analysis.job_description else "No job description provided.",
+            "ai_feedback": analysis.ai_feedback or "No ai feedback provided.",
+            "enhanced_resume": analysis.enhanced_resume or "No enhanced resume provided.",
         })
 
         with open(pdf_path, "wb") as pdf_file:
@@ -939,8 +951,9 @@ def feedback_detail(request, pk):
 
     return Response({
         'ai_model': analysis.get_ai_model_display(),
-        'ai_feedback': analysis.ai_feedback,
-        'enhanced_resume': analysis.enhanced_resume
+        'job_description': analysis.job_description if analysis.job_description else "No job description provided.",
+        'ai_feedback': analysis.ai_feedback if analysis.ai_feedback else "No ai feedback provided.",
+        'enhanced_resume': analysis.enhanced_resume if analysis.enhanced_resume else "No enhanced resume provided."
     })
     
 @api_view(['GET'])
