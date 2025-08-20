@@ -736,7 +736,7 @@ def resume_analyze(request):
         return Response({'error': 'Please select a resume to analyze.'}, status=400)
     
     MAX_LENGTH = 200
-    if len(job_description) > MAX_LENGTH:
+    if job_description and len(job_description) > MAX_LENGTH:
         return Response({'error': f"Job description exceeded {MAX_LENGTH} characters."}, status=400)
     
     # Get file type
