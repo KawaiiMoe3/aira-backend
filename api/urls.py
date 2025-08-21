@@ -45,6 +45,8 @@ urlpatterns = [
     path('download-uploaded-resume/<str:filename>/', views.download_uploaded_resume),
     path('download-analysis-report/<str:filename>/', views.download_analysis_report),
     
+    # Analyzers
     path('analyze-resume/', views.resume_analyze),
     path('feedback/<int:pk>/', views.feedback_detail),
+    path('cover-letter-generator/', views.cover_letter_generator),
 ]

@@ -766,6 +766,7 @@ def profile_status(request):
             'message': 'Profile not found. Please complete your profile.'
         }, status=404)
 
+# Process resume analyze by OpenAI AI model 
 @api_view(['POST'])
 @parser_classes([MultiPartParser])
 @permission_classes([IsAuthenticated])
@@ -797,7 +798,7 @@ def resume_analyze(request):
         return Response({'error': 'Invalid file format. Please provide docx or pdf file.'}, status=400)
     
     # Prompt to the AI model (input)
-    prompt_text = """
+    prompt_text = f"""
         You are an expert career coach and resume writer.
         Analyze the provided resume and give your response in **two clearly separated sections**:
 
@@ -908,6 +909,7 @@ def resume_analyze(request):
         ai_model=ai_model,
         ai_feedback=ai_feedback,
         enhanced_resume=enhanced_resume,
+        type="resume",
     )
 
     return Response({
@@ -916,6 +918,7 @@ def resume_analyze(request):
         'enhanced_resume': enhanced_resume,
     })
 
+# Generate PDF report for feedback details after resume processed by AI model
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def feedback_detail(request, pk):
@@ -955,7 +958,8 @@ def feedback_detail(request, pk):
         'ai_feedback': analysis.ai_feedback if analysis.ai_feedback else "No ai feedback provided.",
         'enhanced_resume': analysis.enhanced_resume if analysis.enhanced_resume else "No enhanced resume provided."
     })
-    
+
+# Display analyze history
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def resume_analysis_history(request):
@@ -967,8 +971,7 @@ def resume_analysis_history(request):
         resume_name = analysis.uploaded_resume.name.split('/')[-1] if analysis.uploaded_resume else ''
         title = os.path.splitext(resume_name)[0]  # Remove extension for title
         
-        date_str = analysis.created_at.strftime("%d%m%y") # DDMMYY
-        analysis_report_filename = f"{title}{date_str}{analysis.id}_report.pdf"
+        analysis_report_filename = analysis.analysis_report.name.split('/')[-1] if analysis.analysis_report else ""
         
         data.append({
             'id': analysis.id,
@@ -977,6 +980,7 @@ def resume_analysis_history(request):
             'uploadedResume': resume_name,
             'analysisReport': analysis_report_filename,
             'ai_model': analysis.get_ai_model_display(),
+            'type': analysis.get_type_display(),
         })
 
     return Response({
@@ -984,6 +988,7 @@ def resume_analysis_history(request):
         'data': data,
     })
 
+# Download uploaded resume
 def download_uploaded_resume(request, filename):
     file_path = os.path.join(settings.MEDIA_ROOT, 'resumes', filename)
     if os.path.exists(file_path):
@@ -992,7 +997,8 @@ def download_uploaded_resume(request, filename):
         return response
     else:
         raise Http404("File does not exist")
-    
+
+# Download analysis PDF report
 def download_analysis_report(request, filename):
     file_path = os.path.join(settings.MEDIA_ROOT, 'analysis_reports', filename)
     if os.path.exists(file_path):
@@ -1001,7 +1007,8 @@ def download_analysis_report(request, filename):
         return response
     else:
         raise Http404("File does not exist")
-    
+
+# Delete selected analyze history
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def delete_selected_analyzed_history(request):
@@ -1039,3 +1046,149 @@ def delete_selected_analyzed_history(request):
         deleted_count += 1
 
     return Response({"message": f"{deleted_count} item(s) deleted"}, status=status.HTTP_200_OK)
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def cover_letter_generator(request):
+    resume = request.FILES.get('resume')
+    ai_model = request.POST.get('ai_model', 'gpt-5-nano') # default if not provided
+    job_description = request.POST.get('job_description')
+    
+    # Validation
+    if not resume or not job_description:
+        return Response({'error': 'Resume and job description are required.'}, status=400)
+    
+    # Get file type
+    resume_ext = os.path.splitext(resume.name)[1].lower()
+    
+    # Check file type
+    if resume_ext not in [".docx", ".pdf"]:
+        return Response({'error': 'Invalid file format. Please provide docx or pdf file.'}, status=400)
+    
+    # Prompt to the AI model (input)
+    prompt_text = f"""
+        You are an expert career assistant. Analyze the provided resume and job description, using the following instructions:
+        
+        Here are the job descriptions:
+        {job_description}
+        
+        Instructions:
+        1. Analyze the resume and highlight the applicant's most relevant skills, experiences, and achievements that match the job description.
+        2. Write the cover letter in a formal but approachable tone.
+        3. Structure it into 3-4 paragraphs:
+        - Introduction (state interest and position applied for)
+        - Body (skills/experiences relevant to the role)
+        - Closing (enthusiasm + request for interview)
+        4. Keep it concise, clear, and professional.
+        5. Do not use markdown formatting. Output plain text only.
+    """
+    
+    tmp_path = None
+    
+    try:
+        # Save uploaded file to temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=resume_ext) as tmp:
+            for chunk in resume.chunks():
+                tmp.write(chunk)
+            tmp_path = tmp.name
+
+        if resume_ext == ".docx":
+            # Extract text from DOCX
+            extracted_text = docx2txt.process(tmp_path)
+            input_content = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text", 
+                            "text": extracted_text
+                        },
+                        {
+                            "type": "input_text", 
+                            "text": prompt_text
+                        }
+                    ]
+                }
+            ]
+        else:
+            # Upload directly for PDF (OpenAI will handle parsing automatically for PDF)
+            with open(tmp_path, "rb") as f:
+                uploaded_resume = client.files.create(file=f, purpose="user_data")
+            input_content = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_file", 
+                            "file_id": uploaded_resume.id
+                        },
+                        {
+                            "type": "input_text", 
+                            "text": prompt_text
+                        }
+                    ]
+                }
+            ]
+
+        # Call OpenAI
+        response = client.responses.create(
+            model=ai_model,
+            input=input_content,
+            timeout=30,
+        )
+
+    except APITimeoutError:
+        return Response({'error': 'AI analyzing timeout. Please try again later.'}, status=504)
+    except APIError as e:
+        return Response({'error': f'AI runtime error: {str(e)}'}, status=502)
+    except Exception as e:
+        return Response({'error': f'Unexpected error: {str(e)}'}, status=500)
+    finally:
+        if tmp_path:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            
+    # Process AI output
+    ai_feedback = response.output_text
+    
+    # Store data to database
+    analysis = ResumeAnalysis.objects.create(
+        user=request.user,
+        uploaded_resume=resume,
+        job_description=job_description,
+        ai_model=ai_model,
+        ai_feedback=ai_feedback,
+        type="cover-letter",
+    )
+    
+    # PDF file for cover letter report generation
+    date_str = analysis.created_at.strftime("%d%m%y")
+    filename = f"{os.path.splitext(os.path.basename(analysis.uploaded_resume.name))[0]}{date_str}{analysis.id}_cover_letter.pdf"
+    pdf_path = os.path.join(settings.MEDIA_ROOT, 'analysis_reports', filename)
+
+    os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+
+    if not os.path.exists(pdf_path):
+        html_content = render_to_string('reports/cover_letter_report.html', {
+            "logo_url": request.build_absolute_uri(settings.STATIC_URL + "images/logo.png"),
+            "title": "Cover Letter",
+            "ai_model": analysis.get_ai_model_display(),
+            "job_description": analysis.job_description or "No job description provided.",
+            "ai_feedback": analysis.ai_feedback or "No AI feedback provided.",
+        })
+
+        with open(pdf_path, "wb") as pdf_file:
+            pisa.CreatePDF(html_content, dest=pdf_file)
+        
+        # Save file to model if not already saved
+        # Only generate PDF report if not exists / Generate PDF report once
+        if not analysis.analysis_report:
+            analysis.analysis_report.name = f"analysis_reports/{filename}"
+            analysis.save()
+    
+    return Response({
+        'id': analysis.id,
+        'ai_feedback': ai_feedback,
+    })
