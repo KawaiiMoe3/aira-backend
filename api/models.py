@@ -93,8 +93,14 @@ class ResumeAnalysis(models.Model):
         ("gpt-4o-mini", "GPT-4o mini"),    
     ]
     
+    TYPES = [
+        ("resume", "Resume"),
+        ("cover-letter", "Cover Letter"),
+    ]
+    
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     uploaded_resume = models.FileField(upload_to='resumes/', blank=True, null=True)
+    type = models.CharField(choices=TYPES, blank=True, null=True)
     ai_model = models.CharField(max_length=100, choices=AI_MODELS, default="gpt-5-nano")
     job_description = models.TextField(blank=True, null=True)
     ai_feedback = models.TextField(blank=True, null=True)
