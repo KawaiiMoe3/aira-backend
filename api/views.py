@@ -911,22 +911,8 @@ def resume_analyze(request):
         enhanced_resume=enhanced_resume,
         type="resume",
     )
-
-    return Response({
-        'id': analysis.id,
-        'ai_feedback': ai_feedback,
-        'enhanced_resume': enhanced_resume,
-    })
-
-# Generate PDF report for feedback details after resume processed by AI model
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def feedback_detail(request, pk):
-    try:
-        analysis = ResumeAnalysis.objects.get(pk=pk, user=request.user)
-    except ResumeAnalysis.DoesNotExist:
-        return Response({'error': 'Not found'}, status=404)
-
+    
+    # PDF file for resume analysis report generation
     date_str = analysis.created_at.strftime("%d%m%y")
     filename = f"{os.path.splitext(os.path.basename(analysis.uploaded_resume.name))[0]}{date_str}{analysis.id}_report.pdf"
     pdf_path = os.path.join(settings.MEDIA_ROOT, 'analysis_reports', filename)
@@ -953,10 +939,31 @@ def feedback_detail(request, pk):
             analysis.save()
 
     return Response({
+        'id': analysis.id,
+        'ai_feedback': ai_feedback,
+        'enhanced_resume': enhanced_resume,
+    })
+
+# Display feedback details after resume processed by AI model
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def feedback_detail(request, pk):
+    try:
+        analysis = ResumeAnalysis.objects.get(pk=pk, user=request.user)
+    except ResumeAnalysis.DoesNotExist:
+        return Response({'error': 'Not found'}, status=404)
+    
+    filename = ""
+    if analysis.analysis_report:
+        filename = os.path.basename(analysis.analysis_report.name)
+
+    return Response({
         'ai_model': analysis.get_ai_model_display(),
         'job_description': analysis.job_description if analysis.job_description else "No job description provided.",
         'ai_feedback': analysis.ai_feedback if analysis.ai_feedback else "No ai feedback provided.",
-        'enhanced_resume': analysis.enhanced_resume if analysis.enhanced_resume else "No enhanced resume provided."
+        'enhanced_resume': analysis.enhanced_resume if analysis.enhanced_resume else "No enhanced resume provided.",
+        'analysis_report': filename,
+        'type': analysis.type,
     })
 
 # Display analyze history
@@ -1028,25 +1035,20 @@ def delete_selected_analyzed_history(request):
             except Exception as e:
                 print(f"Error deleting file {record.uploaded_resume.path}: {e}")
                 
-        # 2. Delete generated analysis report if exists
-        if record.analysis_report:
-            resume_title = os.path.splitext(os.path.basename(record.uploaded_resume.name))[0]
-            date_str = record.created_at.strftime("%d%m%y")
-            analysis_report_filename = f"{resume_title}{date_str}{record.id}_report.pdf"
-            analysis_report_path = os.path.join(settings.MEDIA_ROOT, "analysis_reports", analysis_report_filename)
+        # 2. Delete generated analysis report if exists (cover_letter or report)
+        if record.analysis_report and record.analysis_report.path and os.path.isfile(record.analysis_report.path):
+            try:
+                os.remove(record.analysis_report.path)
+            except Exception as e:
+                print(f"Error deleting analysis file {record.analysis_report.path}: {e}")
 
-            if os.path.isfile(analysis_report_path):
-                try:
-                    os.remove(analysis_report_path)
-                except Exception as e:
-                    print(f"Error deleting analysis report {analysis_report_path}: {e}")
-
-        # Then delete the database record
+        # 3. Delete the database record
         record.delete()
         deleted_count += 1
 
     return Response({"message": f"{deleted_count} item(s) deleted"}, status=status.HTTP_200_OK)
 
+# Cover letter generator with PDF report generation
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def cover_letter_generator(request):
@@ -1191,4 +1193,5 @@ def cover_letter_generator(request):
     return Response({
         'id': analysis.id,
         'ai_feedback': ai_feedback,
+        'analysis_report': f"{filename}" or "",
     })
